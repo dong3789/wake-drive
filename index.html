@@ -40,6 +40,18 @@
   .shelter b { font-size:16px; }
   .shelter span { color:var(--muted); font-size:13px; }
   .hidden { display:none; }
+  #tourDim { position:fixed; inset:0; background:rgba(2,6,23,.78); z-index:1000; }
+  #tourBubble { position:fixed; z-index:1003; background:#f8fafc; color:#0f172a; border-radius:16px;
+    padding:16px; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  #tourBubble::before { content:''; position:absolute; top:-7px; left:24px; width:14px; height:14px;
+    background:#f8fafc; transform:rotate(45deg); }
+  #tourBubble.above::before { top:auto; bottom:-7px; }
+  #tourBubble b { font-size:17px; display:block; margin-bottom:6px; }
+  #tourBubble p { margin:0 0 12px; font-size:14px; line-height:1.6; color:#334155; }
+  #tourBubble .sub { color:#64748b; }
+  #tourBubble button.ghost { color:#0f172a; border-color:#cbd5e1; }
+  .tour-spot { position:relative; z-index:1002; outline:3px solid var(--accent); outline-offset:2px; pointer-events:none; }
+  #helpBtn { margin-top:8px; }
   table { width:100%; border-collapse:collapse; font-size:13px; line-height:1.6; }
   td, th { border-bottom:1px solid var(--line); padding:8px 4px; text-align:left; vertical-align:top; }
   th { color:var(--muted); font-weight:600; }
@@ -49,9 +61,10 @@
 <div class="wrap">
   <h1>😴 웨이크 드라이브</h1>
   <p class="sub">졸음운전을 “알람”이 아니라 <b>예측 + 음성 개입 + 쉼터 안내</b>로 막는 차량용 안전 앱 — 프로토타입</p>
+  <button class="ghost" id="helpBtn" style="padding:8px 12px;font-size:14px">💡 처음 오셨나요? 설명 보기</button>
   <div class="notice">⚠️ 프로토타입입니다. 실제 Pleos SDK 연동 전 단계로, 차량 데이터(속도·주행 시간·경고등)는 시뮬레이션 값이고, 졸음쉼터 정보도 예시 데이터입니다. 실제 구현은 Pleos Connect 에뮬레이터에서 Vehicle SDK · NaviHelper · FusedLocation · TTS/STT로 연동합니다.</div>
 
-  <div class="card">
+  <div class="card" id="statusCard">
     <div class="row">
       <div class="stat"><span>주행 시간</span><b id="driveTime">0분</b></div>
       <div class="stat"><span>속도</span><b id="speed">0 km/h</b></div>
@@ -63,7 +76,7 @@
     <p class="sub" id="hint">주행을 시작하면 연속 주행 시간·시간대·단조 구간·속도 변화를 합산해 위험 점수를 계산합니다.</p>
   </div>
 
-  <div class="card">
+  <div class="card" id="condCard">
     <label>시간대</label>
     <select id="timeOfDay">
       <option value="day">낮 (09:00–18:00)</option>
@@ -107,12 +120,12 @@
     <p class="sub" id="restStatus"></p>
   </div>
 
-  <div class="card">
+  <div class="card" id="logCard">
     <h2 style="margin:0 0 6px;font-size:18px">주행 기록</h2>
     <div class="log" id="log"><b>기록이 여기에 쌓입니다.</b></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="apiCard">
     <h2 style="margin:0 0 6px;font-size:18px">프로토타입 ↔ Pleos API 대응표</h2>
     <table>
       <tr><th>프로토타입 요소</th><th>실제 구현 (Pleos Playground)</th></tr>
@@ -122,6 +135,20 @@
       <tr><td>음성 퀴즈 출제 / 답변 인식</td><td>TTS / STT SDK — 화면을 보지 않는 각성 체크</td></tr>
     </table>
     <p class="sub">기획서(공모전 제출용)의 5. 개발 계획에 있는 2주 에뮬레이터 구현 로드맵과 같은 흐름입니다: 1주차 위험 점수 + 음성 퀴즈, 2주차 쉼터 안내 연동 + 시연 시나리오.</p>
+  </div>
+</div>
+
+<div id="tourDim" class="hidden"></div>
+<div id="tourBubble" class="hidden" role="dialog" aria-live="polite">
+  <b id="tourTitle"></b>
+  <p id="tourText"></p>
+  <div class="row" style="justify-content:space-between">
+    <span class="sub" id="tourStep"></span>
+    <span class="row" style="gap:8px">
+      <button class="ghost" id="tourPrev" style="padding:8px 12px;font-size:14px">이전</button>
+      <button id="tourNext" style="padding:8px 14px;font-size:14px">다음</button>
+      <button class="ghost" id="tourClose" style="padding:8px 12px;font-size:14px">닫기</button>
+    </span>
   </div>
 </div>
 
@@ -271,6 +298,101 @@ $('restBtn').onclick = () => {
 };
 $('speedRange').oninput = e => { $('speedLabel').textContent = e.target.value; render(); };
 $('accelRange').oninput = e => { $('accelLabel').textContent = e.target.value + '분'; };
+/* 첫 방문 설명 말풍선 투어 */
+const tourSteps = [
+  { sel:'.notice', title:'프로토타입 안내', text:'이건 실제 차가 아니라, 브라우저에서 돌아가는 시뮬레이션이에요. 속도·주행 시간은 직접 정하는 값이고, 쉼터 정보도 예시예요. 실제 앱은 Pleos SDK로 차와 연결돼요.' },
+  { sel:'#statusCard', title:'주행 상태와 위험 점수', text:'위험 점수는 연속 주행 시간·시간대·단조 구간·속도를 합산해 계산해요. 40점부터 주의, 70점부터 위험 단계예요.' },
+  { sel:'#condCard', title:'주행 조건을 정해요', text:'시간대·구간·속도를 정하면 시뮬레이션이 달라져요. 속도는 슬라이더로 직접 정하는 값이고, 실제 앱은 Vehicle SDK에서 실시간으로 가져와요. “1초 = 1분”은 빨리 보기 위한 배속이에요.' },
+  { sel:'#quizCard', reveal:'quiz', title:'각성 체크', text:'위험 70점 이상이 되면 음성 퀴즈가 떠요. 졸음이 오면 반응이 제일 먼저 느려지니까, 답하는 속도로 졸음을 재는 거예요. 음성으로 답하거나 직접 입력할 수 있어요. (지금 보이는 건 미리보기예요.)', altSel:'#logCard', altText:'지금 주행 중이라 퀴즈 카드를 미리 보여줄 수 없어요. 위험 70점 이상이 되면 여기에 음성 퀴즈가 떠요. 졸음이 오면 반응이 제일 먼저 느려지니까, 답하는 속도로 졸음을 재는 거예요.' },
+  { sel:'#shelterCard', reveal:'shelter', title:'쉼터 안내', text:'퀴즈에 늦거나 틀리면 가장 가까운 졸음쉼터·휴게소를 안내해요. 버튼 한 번이면 경로에 바로 반영되는 게 목표예요. 지금 보이는 건 예시 데이터예요.', altSel:'#logCard', altText:'지금 주행 중이라 쉼터 카드를 미리 보여줄 수 없어요. 각성 체크에 실패하면 여기에 가장 가까운 졸음쉼터·휴게소가 떠요.' },
+  { sel:'#apiCard', title:'실제 구현은 어떻게?', text:'프로토타입의 각 요소가 실제 Pleos API 중 무엇으로 바뀌는지 보여줘요. 위험 점수 입력값은 Vehicle SDK, 쉼터 안내는 NaviHelper, 위치는 FusedLocation, 음성 퀴즈는 TTS/STT로 연동해요.' },
+];
+let tourIdx = -1, tourRevealed = null;
+function tourCanReveal(kind){ return kind === 'quiz' ? (!state.running && !state.quiz) : !state.running; }
+function tourReveal(kind){
+  if (kind === 'quiz') {
+    $('quizCard').classList.remove('hidden');
+    $('quizText').textContent = '각성 체크(미리보기): 7 더하기 5는 얼마예요?';
+    $('quizStatus').textContent = '위험 70점 이상이 되면 실제로 출제돼요.';
+  } else {
+    $('shelterCard').classList.remove('hidden');
+    $('shelterList').innerHTML = shelters.map((s,i)=>
+      `<div class="shelter"><b>${i===0?'⭐ ':''}${s.name}</b> — ${s.dist}<br><span>${s.detail}</span></div>`).join('');
+    $('restStatus').textContent = '지금 보이는 건 미리보기예요.';
+  }
+  tourRevealed = kind;
+}
+function tourHideReveal(){
+  if (!tourRevealed) return;
+  if (tourRevealed === 'quiz') {
+    $('quizCard').classList.add('hidden');
+    $('quizText').textContent = '각성 체크를 준비하고 있습니다…';
+    $('quizStatus').textContent = '';
+  } else {
+    $('shelterCard').classList.add('hidden');
+    $('restStatus').textContent = '';
+  }
+  tourRevealed = null;
+}
+function tourTarget(step){
+  if (step.reveal && tourCanReveal(step.reveal)) { tourReveal(step.reveal); return { el:document.querySelector(step.sel), text:step.text }; }
+  if (step.reveal) return { el:document.querySelector(step.altSel), text:step.altText };
+  return { el:document.querySelector(step.sel), text:step.text };
+}
+function tourPlace(){
+  const b = $('tourBubble');
+  const el = b._target;
+  if (!el || tourIdx < 0) return;
+  const r = el.getBoundingClientRect();
+  const w = Math.min(320, window.innerWidth - 24);
+  b.style.width = w + 'px';
+  const bw = b.offsetWidth, bh = b.offsetHeight;
+  let top = r.bottom + 12, above = false;
+  if (window.innerHeight - r.bottom < bh + 24 && r.top > bh + 24) { top = r.top - bh - 12; above = true; }
+  top = Math.max(8, Math.min(top, window.innerHeight - bh - 8));
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - bw - 8));
+  b.style.top = top + 'px'; b.style.left = left + 'px';
+  b.classList.toggle('above', above);
+}
+function tourShow(i){
+  tourHideReveal();
+  document.querySelectorAll('.tour-spot').forEach(e => e.classList.remove('tour-spot'));
+  tourIdx = i;
+  const step = tourSteps[i];
+  const t = tourTarget(step);
+  t.el.classList.add('tour-spot');
+  $('tourTitle').textContent = step.title;
+  $('tourText').textContent = t.text;
+  $('tourStep').textContent = (i + 1) + ' / ' + tourSteps.length;
+  $('tourPrev').style.visibility = i === 0 ? 'hidden' : 'visible';
+  $('tourNext').textContent = i === tourSteps.length - 1 ? '시작하기' : '다음';
+  $('tourDim').classList.remove('hidden');
+  $('tourBubble').classList.remove('hidden');
+  $('tourBubble')._target = t.el;
+  t.el.scrollIntoView({ behavior:'smooth', block:'center' });
+  setTimeout(tourPlace, 350);
+}
+function tourEnd(){
+  tourHideReveal();
+  document.querySelectorAll('.tour-spot').forEach(e => e.classList.remove('tour-spot'));
+  tourIdx = -1;
+  $('tourDim').classList.add('hidden');
+  $('tourBubble').classList.add('hidden');
+  try { localStorage.setItem('wake-drive-tour-seen', '1'); } catch(e){}
+}
+function tourStart(force){
+  if (!force) { try { if (localStorage.getItem('wake-drive-tour-seen')) return; } catch(e){} }
+  tourShow(0);
+}
+$('tourNext').onclick = () => { if (tourIdx >= tourSteps.length - 1) tourEnd(); else tourShow(tourIdx + 1); };
+$('tourPrev').onclick = () => { if (tourIdx > 0) tourShow(tourIdx - 1); };
+$('tourClose').onclick = tourEnd;
+$('tourDim').onclick = tourEnd;
+$('helpBtn').onclick = () => tourStart(true);
+window.addEventListener('resize', () => { if (tourIdx >= 0) tourPlace(); });
+window.addEventListener('scroll', () => { if (tourIdx >= 0) tourPlace(); }, true);
+setTimeout(() => tourStart(false), 500);
+
 render();
 </script>
 </body>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>웨이크 드라이브 — 프로토타입</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --text:#f1f5f9; --muted:#94a3b8;
+    --safe:#22c55e; --warn:#f59e0b; --danger:#ef4444; --accent:#38bdf8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:640px; margin:0 auto; padding:20px 16px 48px; }
+  h1 { font-size:24px; margin:8px 0 4px; }
+  .sub { color:var(--muted); font-size:14px; line-height:1.6; }
+  .notice { background:#451a03; border:1px solid #92400e; color:#fde68a; border-radius:12px;
+    padding:12px 14px; font-size:13px; line-height:1.6; margin:16px 0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; margin:14px 0; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .stat { flex:1; min-width:120px; background:#0f172a; border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .stat b { display:block; font-size:22px; }
+  .stat span { color:var(--muted); font-size:12px; }
+  .gauge { height:18px; background:#0f172a; border:1px solid var(--line); border-radius:999px; overflow:hidden; margin:10px 0 4px; }
+  .gauge > div { height:100%; width:0%; background:var(--safe); transition:width .4s, background .4s; }
+  .stage { font-size:20px; font-weight:700; }
+  .stage.safe { color:var(--safe); } .stage.warn { color:var(--warn); } .stage.danger { color:var(--danger); }
+  button { background:var(--accent); color:#082f49; border:0; border-radius:12px; padding:14px 18px;
+    font-size:16px; font-weight:700; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  button.danger { background:var(--danger); color:#fff; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.big { width:100%; font-size:18px; padding:16px; }
+  label { font-size:13px; color:var(--muted); display:block; margin:10px 0 4px; }
+  input[type=range] { width:100%; }
+  select, input[type=text] { width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:#0f172a; color:var(--text); font-size:16px; }
+  .quiz { font-size:20px; font-weight:700; line-height:1.5; }
+  .log { font-size:13px; line-height:1.7; color:var(--muted); max-height:180px; overflow:auto; }
+  .log b { color:var(--text); }
+  .shelter { border:1px solid var(--line); border-radius:12px; padding:12px; margin:8px 0; }
+  .shelter b { font-size:16px; }
+  .shelter span { color:var(--muted); font-size:13px; }
+  .hidden { display:none; }
+  table { width:100%; border-collapse:collapse; font-size:13px; line-height:1.6; }
+  td, th { border-bottom:1px solid var(--line); padding:8px 4px; text-align:left; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>😴 웨이크 드라이브</h1>
+  <p class="sub">졸음운전을 “알람”이 아니라 <b>예측 + 음성 개입 + 쉼터 안내</b>로 막는 차량용 안전 앱 — 프로토타입</p>
+  <div class="notice">⚠️ 프로토타입입니다. 실제 Pleos SDK 연동 전 단계로, 차량 데이터(속도·주행 시간·경고등)는 시뮬레이션 값이고, 졸음쉼터 정보도 예시 데이터입니다. 실제 구현은 Pleos Connect 에뮬레이터에서 Vehicle SDK · NaviHelper · FusedLocation · TTS/STT로 연동합니다.</div>
+
+  <div class="card">
+    <div class="row">
+      <div class="stat"><span>주행 시간</span><b id="driveTime">0분</b></div>
+      <div class="stat"><span>속도</span><b id="speed">0 km/h</b></div>
+      <div class="stat"><span>각성 체크</span><b id="quizCount">0회</b></div>
+    </div>
+    <label>졸음 위험 점수</label>
+    <div class="gauge"><div id="gaugeBar"></div></div>
+    <div class="row"><span class="stage safe" id="stage">안전</span><span class="sub" id="scoreText">0점 / 100점</span></div>
+    <p class="sub" id="hint">주행을 시작하면 연속 주행 시간·시간대·단조 구간·속도 변화를 합산해 위험 점수를 계산합니다.</p>
+  </div>
+
+  <div class="card">
+    <label>시간대</label>
+    <select id="timeOfDay">
+      <option value="day">낮 (09:00–18:00)</option>
+      <option value="evening">저녁 (18:00–23:00)</option>
+      <option value="night" selected>심야·새벽 (23:00–05:00)</option>
+    </select>
+    <label>구간: 단조로운 장거리 직선 구간</label>
+    <select id="monotony">
+      <option value="0">아니오 — 변화가 많은 구간</option>
+      <option value="1" selected>예 — 장거리 직선·정체 구간</option>
+    </select>
+    <label>속도 (km/h): <span id="speedLabel">100</span></label>
+    <input type="range" id="speedRange" min="0" max="140" value="100">
+    <label>시뮬레이션 속도: 1초 = <span id="accelLabel">1분</span> 주행</label>
+    <input type="range" id="accelRange" min="1" max="5" value="2">
+    <div class="row" style="margin-top:14px">
+      <button class="big" id="startBtn" style="flex:1">▶ 주행 시작</button>
+      <button class="ghost" id="stopBtn" disabled>■ 주행 종료·요약</button>
+    </div>
+  </div>
+
+  <div class="card hidden" id="quizCard">
+    <div class="quiz" id="quizText">각성 체크를 준비하고 있습니다…</div>
+    <p class="sub">화면을 보지 않고 음성으로 답하세요. 음성 인식이 안 되면 아래에 직접 입력해도 됩니다.</p>
+    <div class="row">
+      <button id="micBtn">🎤 음성으로 답하기</button>
+      <button class="ghost" id="speakBtn">🔊 문제 다시 듣기</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="answerInput" placeholder="예: 12 / 오후 3시" style="flex:1">
+      <button id="answerBtn">답 제출</button>
+    </div>
+    <p class="sub" id="quizStatus"></p>
+  </div>
+
+  <div class="card hidden" id="shelterCard">
+    <h2 style="margin:0 0 6px;font-size:18px">🛏️ 가까운 졸음쉼터·휴게소</h2>
+    <p class="sub">반응이 늦거나 틀렸습니다. 가장 가까운 쉴 곳을 안내합니다. (예시 데이터 — 실제 구현은 NaviHelper 경로·위치 정보로 계산합니다.)</p>
+    <div id="shelterList"></div>
+    <button class="danger big" id="restBtn">이 쉼터로 안내 시작</button>
+    <p class="sub" id="restStatus"></p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin:0 0 6px;font-size:18px">주행 기록</h2>
+    <div class="log" id="log"><b>기록이 여기에 쌓입니다.</b></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin:0 0 6px;font-size:18px">프로토타입 ↔ Pleos API 대응표</h2>
+    <table>
+      <tr><th>프로토타입 요소</th><th>실제 구현 (Pleos Playground)</th></tr>
+      <tr><td>위험 점수 입력값</td><td>Vehicle SDK — 속도·주행 시간·경고등 등 차량 상태</td></tr>
+      <tr><td>쉼터 안내</td><td>NaviHelper — 목적지·경로·졸음쉼터/휴게소 위치</td></tr>
+      <tr><td>가장 가까운 쉼터 계산</td><td>FusedLocation — GPS·IMU·카메라 융합 정밀 위치</td></tr>
+      <tr><td>음성 퀴즈 출제 / 답변 인식</td><td>TTS / STT SDK — 화면을 보지 않는 각성 체크</td></tr>
+    </table>
+    <p class="sub">기획서(공모전 제출용)의 5. 개발 계획에 있는 2주 에뮬레이터 구현 로드맵과 같은 흐름입니다: 1주차 위험 점수 + 음성 퀴즈, 2주차 쉼터 안내 연동 + 시연 시나리오.</p>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = {
+  running:false, minutes:0, risk:0, quizzes:0, timer:null,
+  quiz:null, quizStart:0, quizTimer:null, rested:false,
+};
+const shelters = [
+  { name:'졸음쉼터 A (고속도로)', dist:'3분', detail:'다음 출구 바로 앞 · 주차 24면' },
+  { name:'휴게소 B', dist:'7분', detail:'식당·화장실 · 주차 120면' },
+  { name:'졸음쉼터 C', dist:'11분', detail:'조용한 휴식 공간 · 주차 18면' },
+];
+function log(msg){ const el=$('log'); const d=document.createElement('div'); d.innerHTML=msg; el.prepend(d); }
+function speak(text){
+  try { speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.lang='ko-KR'; u.rate=1.0; speechSynthesis.speak(u); } catch(e){}
+}
+function render(){
+  $('driveTime').textContent = state.minutes + '분';
+  $('speed').textContent = $('speedRange').value + ' km/h';
+  $('quizCount').textContent = state.quizzes + '회';
+  const r = Math.round(state.risk);
+  $('scoreText').textContent = r + '점 / 100점';
+  const bar = $('gaugeBar');
+  bar.style.width = r + '%';
+  const stage = $('stage');
+  if (r < 40) { stage.textContent='안전'; stage.className='stage safe'; bar.style.background='var(--safe)'; }
+  else if (r < 70) { stage.textContent='주의'; stage.className='stage warn'; bar.style.background='var(--warn)'; }
+  else { stage.textContent='위험'; stage.className='stage danger'; bar.style.background='var(--danger)'; }
+}
+function tick(){
+  if (!state.running) return;
+  const accel = +$('accelRange').value;
+  state.minutes += accel;
+  const speed = +$('speedRange').value;
+  const night = $('timeOfDay').value === 'night' ? 14 : ($('timeOfDay').value === 'evening' ? 6 : 0);
+  const mono = +$('monotony').value ? 10 : 0;
+  const steady = (speed >= 80 && speed <= 110) ? 4 : 0; // 단조로운 정속 주행
+  const timeFactor = Math.min(40, state.minutes * 0.35); // 연속 주행 시간
+  state.risk = Math.min(100, timeFactor + night + mono + steady);
+  render();
+  if (state.risk >= 40 && state.risk < 70) {
+    $('hint').textContent = '졸음 위험이 올라가고 있어요. 10분 뒤 한 번 확인할게요.';
+  } else if (state.risk >= 70 && !state.quiz) {
+    startQuiz();
+  }
+}
+function makeQuiz(){
+  const kind = Math.random() < 0.5 ? 'math' : 'time';
+  if (kind === 'math') {
+    const a = 3 + Math.floor(Math.random()*7), b = 3 + Math.floor(Math.random()*7);
+    return { q:`${a} 더하기 ${b}는 얼마예요?`, answer:String(a+b), kind };
+  }
+  const h = 1 + Math.floor(Math.random()*11);
+  return { q:`지금 시각을 말씀해 보세요. (예: 오후 ${h}시)`, answer:null, kind, expectedHour:h };
+}
+function startQuiz(){
+  state.quizzes++;
+  state.quiz = makeQuiz();
+  state.quizStart = Date.now();
+  $('quizCard').classList.remove('hidden');
+  $('quizText').textContent = '각성 체크: ' + state.quiz.q;
+  $('quizStatus').textContent = '10초 안에 답하세요. 늦으면 쉼터 안내로 넘어갑니다.';
+  $('answerInput').value = '';
+  speak('졸음 위험이 높아졌어요. 각성 체크를 할게요. ' + state.quiz.q);
+  log(`<b>${state.minutes}분 주행</b> — 위험 단계 진입, 음성 퀴즈 출제: “${state.quiz.q}”`);
+  render();
+  clearTimeout(state.quizTimer);
+  state.quizTimer = setTimeout(()=>{ if (state.quiz) failQuiz('시간 초과'); }, 10000);
+}
+function finishQuiz(ok, how){
+  if (!state.quiz) return;
+  const secs = ((Date.now() - state.quizStart)/1000).toFixed(1);
+  clearTimeout(state.quizTimer);
+  const q = state.quiz; state.quiz = null;
+  $('quizStatus').textContent = ok ? `정답입니다. ${secs}초 만에 답했어요. (${how})` : `아쉬워요. ${how} — 쉼터 안내로 넘어갑니다.`;
+  if (ok) {
+    state.risk = Math.max(25, state.risk - 25);
+    log(`<b>각성 체크 통과</b> — ${secs}초, ${how}. 위험 점수 ${Math.round(state.risk)}점으로 하락.`);
+    setTimeout(()=>{ $('quizCard').classList.add('hidden'); }, 2500);
+  } else {
+    log(`<b>각성 체크 실패</b> — ${how}. 쉼터 안내를 시작합니다.`);
+    showShelters();
+  }
+  render();
+}
+function failQuiz(reason){ finishQuiz(false, reason); }
+function showShelters(){
+  $('shelterCard').classList.remove('hidden');
+  $('shelterList').innerHTML = shelters.map((s,i)=>
+    `<div class="shelter"><b>${i===0?'⭐ ':''}${s.name}</b> — ${s.dist}<br><span>${s.detail}</span></div>`).join('');
+  speak('가장 가까운 졸음쉼터까지 3분이에요. 안내할까요?');
+  $('shelterCard').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+$('startBtn').onclick = () => {
+  state.running = true; state.minutes = 0; state.risk = 0; state.quizzes = 0; state.rested = false;
+  $('quizCard').classList.add('hidden'); $('shelterCard').classList.add('hidden');
+  $('startBtn').disabled = true; $('stopBtn').disabled = false;
+  $('hint').textContent = '주행 중입니다. 위험 점수를 실시간으로 계산하고 있어요.';
+  log('<b>주행 시작</b> — 심야·단조 구간 조건으로 시뮬레이션을 시작합니다.');
+  speak('주행을 시작합니다. 졸음 위험을 지켜볼게요.');
+  render();
+  clearInterval(state.timer);
+  state.timer = setInterval(tick, 1000);
+};
+$('stopBtn').onclick = () => {
+  state.running = false; clearInterval(state.timer); clearTimeout(state.quizTimer); state.quiz = null;
+  $('startBtn').disabled = false; $('stopBtn').disabled = true;
+  $('quizCard').classList.add('hidden');
+  $('hint').textContent = `주행 종료 — 총 ${state.minutes}분, 각성 체크 ${state.quizzes}회, 쉼터 안내 ${state.rested ? '1회' : '0회'}.`;
+  log(`<b>주행 요약</b> — 총 ${state.minutes}분 · 각성 체크 ${state.quizzes}회 · 쉼터 안내 ${state.rested ? '1회' : '없음'}`);
+  speak('주행을 마쳤어요. 오늘도 안전 운전하세요.');
+  render();
+};
+$('speakBtn').onclick = () => { if (state.quiz) speak(state.quiz.q); };
+$('answerBtn').onclick = () => {
+  if (!state.quiz) return;
+  const v = $('answerInput').value.trim();
+  if (!v) { $('quizStatus').textContent = '답을 입력하거나 음성으로 말씀해 주세요.'; return; }
+  if (state.quiz.kind === 'math') {
+    finishQuiz(v.replace(/[^0-9]/g,'') === state.quiz.answer, `입력 답: ${v}`);
+  } else {
+    finishQuiz(/\d/.test(v), `입력 답: ${v}`);
+  }
+};
+$('micBtn').onclick = () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $('quizStatus').textContent = '이 브라우저는 음성 인식을 지원하지 않아요. 아래 입력창을 이용해 주세요.'; return; }
+  const rec = new SR(); rec.lang = 'ko-KR'; rec.interimResults = false; rec.maxAlternatives = 1;
+  $('quizStatus').textContent = '듣고 있어요… 말씀해 주세요.';
+  rec.onresult = e => { const text = e.results[0][0].transcript.trim(); $('answerInput').value = text;
+    if (!state.quiz) return;
+    if (state.quiz.kind === 'math') finishQuiz(text.replace(/[^0-9]/g,'') === state.quiz.answer, `음성 답: ${text}`);
+    else finishQuiz(/\d/.test(text), `음성 답: ${text}`);
+  };
+  rec.onerror = () => { $('quizStatus').textContent = '음성을 잘 못 들었어요. 다시 말씀하시거나 직접 입력해 주세요.'; };
+  rec.start();
+};
+$('restBtn').onclick = () => {
+  state.rested = true;
+  state.risk = 20;
+  $('restStatus').textContent = '졸음쉼터 A로 안내를 시작합니다. 도착하면 20분 휴식을 권장합니다. (프로토타입 — 실제 안내는 NaviHelper 경로로 연결됩니다.)';
+  speak('졸음쉼터까지 3분이에요. 안내를 시작합니다.');
+  log('<b>쉼터 안내 시작</b> — 졸음쉼터 A, 3분. 도착 후 휴식 권장.');
+  render();
+};
+$('speedRange').oninput = e => { $('speedLabel').textContent = e.target.value; render(); };
+$('accelRange').oninput = e => { $('accelLabel').textContent = e.target.value + '분'; };
+render();
+</script>
+</body>
+</html>
